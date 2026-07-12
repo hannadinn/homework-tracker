@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — Homework Tracker</title>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #f5f5f7;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+      max-width: 320px;
+    }
+    h1 { font-size: 1.1rem; margin: 0 0 8px; }
+    p { font-size: 0.9rem; color: #666; margin: 0 0 20px; }
+    .g_id_signin_wrap { display: flex; justify-content: center; }
+    .error-text { color: #ff3b30; font-size: 0.85rem; margin-top: 14px; display: none; }
+    .error-text.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>📊 Homework Tracker</h1>
+    <p>Sign in with Google to continue.</p>
+    <div id="g_id_onload"
+         data-client_id="__GOOGLE_OAUTH_WEB_CLIENT_ID__"
+         data-callback="handleCredentialResponse">
+    </div>
+    <div class="g_id_signin_wrap">
+      <div class="g_id_signin" data-type="standard" data-shape="pill"></div>
+    </div>
+    <div class="error-text" id="errorText"></div>
+  </div>
+
+  <script>
+    async function handleCredentialResponse(response) {
+      const errorEl = document.getElementById('errorText');
+      errorEl.classList.remove('visible');
+      try {
+        const res = await fetch('/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: response.credential }),
+        });
+        if (res.ok) {
+          window.location.href = '/';
+        } else {
+          const data = await res.json().catch(() => ({}));
+          errorEl.textContent = data.detail || 'Sign-in failed. Please try again.';
+          errorEl.classList.add('visible');
+        }
+      } catch (err) {
+        errorEl.textContent = 'Something went wrong. Please try again.';
+        errorEl.classList.add('visible');
+      }
+    }
+  </script>
+</body>
+</html>

@@ -14,7 +14,8 @@ homework-tracker/
 ├── get_token.py                 # One-time script to authorize your Google account
 ├── static/
 │   ├── index.html                # Frontend (classes -> assignments -> chat)
-│   └── manifest.json               # PWA manifest ("Add to Home Screen")
+│   ├── login.html                  # Google Sign-In page
+│   └── manifest.json                 # PWA manifest ("Add to Home Screen")
 ├── requirements.txt
 ├── Dockerfile
 ├── .dockerignore
@@ -220,10 +221,10 @@ container (rather than as a raw env var, since it's JSON) and points
 Cloud Run prints a URL like `https://homework-tracker-xxxxx-uc.a.run.app` -- that's your app.
 
 > Either option: `--allow-unauthenticated` / "Allow unauthenticated
-> invocations" makes the URL publicly reachable without a Google login.
-> Fine for a personal prototype, but anyone with the URL could use it --
-> add basic auth (e.g. a shared passphrase check in `/instruct` and the
-> class/assignment endpoints) before sharing it widely.
+> invocations" makes the URL publicly *reachable* without a Google login at
+> the infrastructure level. That's fine -- the app itself gates real access
+> behind Google Sign-In (see below), so this setting only controls whether
+> the connection is accepted, not whether anyone can actually use the app.
 
 ### Token refresh in production
 OAuth access tokens expire (usually hourly), but `token.json` includes a
@@ -234,6 +235,73 @@ months for consent-screen apps still in "Testing" mode) -- if that happens,
 rerun `get_token.py` locally, then update the secret:
 - **Browser**: Secret Manager -> `google-oauth-token` -> **New Version** -> upload the new `token.json`.
 - **CLI**: `gcloud secrets versions add google-oauth-token --data-file=token.json`
+
+---
+
+## Restrict access to your own Google account
+
+By default (`--allow-unauthenticated`), anyone with the Cloud Run URL can
+*reach* the app. To make sure only **you** can actually use it, the app
+has a built-in login gate using Google Sign-In -- restricted to one exact
+email address, verified by Google itself (not a shared password anyone
+could leak or guess).
+
+### 1. Create a "Web application" OAuth client
+This is separate from the "Desktop app" one used by `get_token.py`.
+- Cloud Console -> **APIs & Services -> Credentials -> Create Credentials -> OAuth client ID**.
+- Application type: **Web application**.
+- Under **Authorized JavaScript origins**, add:
+  - `http://localhost:8000` (for local testing)
+  - Your Cloud Run URL once you have it, e.g. `https://homework-tracker-xxxxx-uc.a.run.app`
+- Create, then copy the **Client ID** (a long string ending in `.apps.googleusercontent.com`).
+
+### 2. Generate a session secret
+This signs the login cookie so it can't be forged:
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+### 3. Local `.env`
+```
+ALLOWED_EMAIL=your.actual.email@gmail.com
+SESSION_SECRET=<the random string from step 2>
+GOOGLE_OAUTH_WEB_CLIENT_ID=<the Web client ID from step 1>
+```
+Restart the server -- visiting `http://localhost:8000` should now redirect
+to `/login` and show a Google Sign-In button. Only the exact email in
+`ALLOWED_EMAIL` will be let through.
+
+### 4. Cloud Run
+`SESSION_SECRET` is sensitive -- store it as a secret. The other two are
+not sensitive on their own (an email address and a client ID meant to be
+public) and can be plain environment variables.
+
+**Browser:** Secret Manager -> Create Secret -> name `session-secret` ->
+paste the value from step 2. Then on your Cloud Run service's **Variables
+& Secrets** tab: add `ALLOWED_EMAIL` and `GOOGLE_OAUTH_WEB_CLIENT_ID` as
+environment variables, and reference `session-secret` as a secret exposed
+as environment variable `SESSION_SECRET`.
+
+**CLI:**
+```bash
+python -c "import secrets; print(secrets.token_hex(32))" | gcloud secrets create session-secret --data-file=-
+
+gcloud run services update homework-tracker \
+  --region=us-central1 \
+  --update-env-vars ALLOWED_EMAIL=your.actual.email@gmail.com,GOOGLE_OAUTH_WEB_CLIENT_ID=your-client-id.apps.googleusercontent.com \
+  --update-secrets SESSION_SECRET=session-secret:latest
+```
+Don't forget to grant the Compute service account access to this new
+secret too (same as the other secrets):
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+If all three env vars aren't set, the login gate is skipped entirely --
+convenient for local dev without bothering with OAuth setup, but make sure
+all three are configured before/when you deploy publicly.
 
 ---
 
@@ -269,9 +337,16 @@ rerun `get_token.py` locally, then update the secret:
 - **Assignment cells not colored** -- color-coding only applies via the
   chatbot's `update_submission_status` action; manually typed values in
   Sheets won't get colors automatically.
+- **Google Sign-In button doesn't appear / errors in browser console** --
+  double check `GOOGLE_OAUTH_WEB_CLIENT_ID` is the **Web application**
+  client ID (not the Desktop one from `get_token.py`), and that the exact
+  URL you're visiting is listed under that client's Authorized JavaScript
+  origins in Cloud Console.
+- **"This app is restricted to a specific Google account" after signing
+  in** -- `ALLOWED_EMAIL` doesn't match the Google account you signed in
+  with, exactly (case-sensitive, no typos).
 
 ## Possible next steps
-- Add basic auth before sharing the Cloud Run URL beyond yourself.
 - Add a `GET /classes/{class_name}/data` endpoint + frontend table view to
   see the full grade sheet without switching to Google Sheets.
 - Prompt-optimization loop for the agent's system prompt if you start

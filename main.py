@@ -32,10 +32,14 @@ if not ENV_PATH.exists():
     print(f"[main] WARNING: no .env file found at {ENV_PATH}")
 load_dotenv(dotenv_path=ENV_PATH)
 
-from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from agent import call_agent
 from sheets_client import (
@@ -47,6 +51,51 @@ from sheets_client import (
 )
 
 app = FastAPI(title="Homework Tracker")
+
+GOOGLE_OAUTH_WEB_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_WEB_CLIENT_ID", "")
+ALLOWED_EMAIL = os.environ.get("ALLOWED_EMAIL", "")
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "")
+
+# Paths that must stay reachable without being logged in yet.
+PUBLIC_PATHS = {"/login", "/auth/google", "/manifest.json"}
+PUBLIC_PREFIXES = ("/static",)
+
+
+class LoginRequiredMiddleware(BaseHTTPMiddleware):
+    """
+    Restricts the whole app to a single Google account, verified via
+    Google Sign-In (not a shared password) -- so only the specific Gmail
+    address in ALLOWED_EMAIL can ever get past the login page. Session
+    state lives in a signed cookie (SessionMiddleware), so a genuine login
+    is remembered across requests without re-verifying every time.
+
+    If ALLOWED_EMAIL/SESSION_SECRET/GOOGLE_OAUTH_WEB_CLIENT_ID aren't all
+    set, auth is skipped entirely -- convenient for local dev, but make
+    sure all three are set before deploying anywhere publicly reachable.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if not (ALLOWED_EMAIL and SESSION_SECRET and GOOGLE_OAUTH_WEB_CLIENT_ID):
+            return await call_next(request)
+
+        path = request.url.path
+        if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
+            return await call_next(request)
+
+        if request.session.get("email") == ALLOWED_EMAIL:
+            return await call_next(request)
+
+        # Browsers navigating directly get sent to the login page; API/fetch
+        # calls (which the frontend JS makes) get a clean 401 instead of an
+        # HTML redirect they can't do anything useful with.
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse(url="/login")
+        return JSONResponse({"detail": "Not authenticated."}, status_code=401)
+
+
+if SESSION_SECRET:
+    app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
+app.add_middleware(LoginRequiredMiddleware)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -64,6 +113,49 @@ def manifest():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Auth (Google Sign-In, restricted to ALLOWED_EMAIL)
+# ---------------------------------------------------------------------------
+
+@app.get("/login")
+def login_page():
+    html = Path("static/login.html").read_text(encoding="utf-8")
+    html = html.replace("__GOOGLE_OAUTH_WEB_CLIENT_ID__", GOOGLE_OAUTH_WEB_CLIENT_ID)
+    return HTMLResponse(html)
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str  # the ID token from Google Sign-In
+
+
+@app.post("/auth/google")
+def auth_google(req: GoogleAuthRequest, request: Request):
+    if not (ALLOWED_EMAIL and SESSION_SECRET and GOOGLE_OAUTH_WEB_CLIENT_ID):
+        raise HTTPException(500, "Login is not configured on this server.")
+
+    try:
+        payload = google_id_token.verify_oauth2_token(
+            req.credential, google_requests.Request(), GOOGLE_OAUTH_WEB_CLIENT_ID
+        )
+    except ValueError:
+        raise HTTPException(401, "Could not verify Google sign-in. Please try again.")
+
+    email = payload.get("email")
+    email_verified = payload.get("email_verified", False)
+
+    if not (email_verified and email == ALLOWED_EMAIL):
+        raise HTTPException(403, "This app is restricted to a specific Google account.")
+
+    request.session["email"] = email
+    return {"message": "Signed in."}
+
+
+@app.post("/auth/logout")
+def auth_logout(request: Request):
+    request.session.clear()
+    return {"message": "Signed out."}
 
 
 # ---------------------------------------------------------------------------
