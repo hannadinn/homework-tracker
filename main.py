@@ -93,9 +93,9 @@ class LoginRequiredMiddleware(BaseHTTPMiddleware):
         return JSONResponse({"detail": "Not authenticated."}, status_code=401)
 
 
+app.add_middleware(LoginRequiredMiddleware)
 if SESSION_SECRET:
     app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
-app.add_middleware(LoginRequiredMiddleware)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
