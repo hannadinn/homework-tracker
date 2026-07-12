@@ -90,6 +90,36 @@ Tracker" folder in your Drive the first time it's needed.
 
 ---
 
+## Environment variables reference
+
+All variables the app reads, in one place. "Required" means the app breaks
+or a feature silently disables without it -- see the Notes column.
+
+| Variable | Required? | Where used | Notes |
+|---|---|---|---|
+| `GOOGLE_API_KEY` | Yes | `agent.py` | Gemini API key from [aistudio.google.com/apikey](https://aistudio.google.com/apikey). |
+| `LLM_MODEL` | No (has a default) | `agent.py` | Defaults to `gemini-3.1-flash-lite` if unset. |
+| `GOOGLE_OAUTH_TOKEN_JSON` | Yes (recommended) | `sheets_client.py` | Path to the file `get_token.py` generates. Required for creating new sheets -- see "Authenticate as your own Google account" above. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | No | `sheets_client.py` | Fallback only, used if `GOOGLE_OAUTH_TOKEN_JSON` is not set. Can read/write existing shared sheets but generally can't create new ones (storage quota limitation). |
+| `GOOGLE_WORKSHEET_NAME` | No (has a default) | `sheets_client.py` | Tab name inside every class sheet. Defaults to `Sheet1`. |
+| `GOOGLE_SHARE_EMAIL` | No | `sheets_client.py` | Only relevant with the service-account fallback -- auto-shares created sheets back to this email. Not needed with OAuth, since you already own the files. |
+| `GOOGLE_DRIVE_FOLDER_ID` | No | `sheets_client.py` | Points at a specific existing Drive folder. If unset, the app auto-creates/reuses a folder named "Homework Tracker". |
+| `ALLOWED_EMAIL` | No* | `main.py` | The one Google account allowed to sign in. See "Restrict access" below. |
+| `SESSION_SECRET` | No* | `main.py` | Signs the login session cookie. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
+| `GOOGLE_OAUTH_WEB_CLIENT_ID` | No* | `main.py`, `static/login.html` | OAuth **Web application** client ID (different from the Desktop one used by `get_token.py`). Safe to expose publicly. |
+
+\* `ALLOWED_EMAIL`, `SESSION_SECRET`, and `GOOGLE_OAUTH_WEB_CLIENT_ID` are
+individually optional, but **all three must be set together** for the
+login gate to activate. If any one is missing, login is skipped entirely
+-- convenient for local dev, but make sure all three are set before
+deploying anywhere publicly reachable.
+
+### Where each variable is set
+- **Local dev**: `.env` file in the project root (loaded automatically via `python-dotenv`).
+- **Cloud Run**: non-sensitive values (`LLM_MODEL`, `GOOGLE_WORKSHEET_NAME`, `ALLOWED_EMAIL`, `GOOGLE_OAUTH_WEB_CLIENT_ID`, `GOOGLE_DRIVE_FOLDER_ID`) as plain environment variables; sensitive values (`GOOGLE_API_KEY`, `GOOGLE_OAUTH_TOKEN_JSON`'s file contents, `SESSION_SECRET`) as Secret Manager secrets -- see the Deploy and Permissions sections below for exact commands.
+
+---
+
 ## Run locally
 
 ```bash
@@ -207,12 +237,7 @@ gcloud secrets create google-oauth-token --data-file=token.json
 
 **2. Deploy:**
 ```bash
-gcloud run deploy homework-tracker \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars GOOGLE_WORKSHEET_NAME=Sheet1,LLM_MODEL=gemini-3.1-flash-lite,GOOGLE_OAUTH_TOKEN_JSON=/secrets/token.json \
-  --set-secrets /secrets/token.json=google-oauth-token:latest,GOOGLE_API_KEY=gemini-api-key:latest
+gcloud run deploy homework-tracker --source . --region us-central1 --allow-unauthenticated --set-env-vars GOOGLE_WORKSHEET_NAME=Sheet1,LLM_MODEL=gemini-3.1-flash-lite,GOOGLE_OAUTH_TOKEN_JSON=/secrets/token.json --set-secrets /secrets/token.json=google-oauth-token:latest,GOOGLE_API_KEY=gemini-api-key:latest
 ```
 This mounts the OAuth token as a file at `/secrets/token.json` inside the
 container (rather than as a raw env var, since it's JSON) and points
@@ -235,6 +260,69 @@ months for consent-screen apps still in "Testing" mode) -- if that happens,
 rerun `get_token.py` locally, then update the secret:
 - **Browser**: Secret Manager -> `google-oauth-token` -> **New Version** -> upload the new `token.json`.
 - **CLI**: `gcloud secrets versions add google-oauth-token --data-file=token.json`
+
+---
+
+## IAM permissions required
+
+Deploying with `--source .` (Option B) involves **two separate identities**,
+and both commonly need permissions granted manually on a fresh project --
+this section pulls together every grant referenced earlier in one place.
+Commands below are **PowerShell** (Windows).
+
+### 1. Your own account (running `gcloud`)
+If you created the GCP project yourself, you're already the Owner and
+don't need to do anything here. This only matters if someone else created
+the project and added you afterward -- in that case you'd need at least
+the **Editor** role to run the commands in this README.
+
+### 2. The Compute Engine default service account
+Cloud Run uses this service account both to **build** your container (via
+Cloud Build, when using `--source .`) and to **run** it -- meaning it
+needs access to read your uploaded source and to read your secrets at
+runtime.
+
+**Find your project number** (needed to build the service account's email):
+```powershell
+gcloud projects describe YOUR_PROJECT_ID --format="value(projectNumber)"
+```
+This prints a number, e.g. `631307158275`. The service account's full
+email is always `<that number>-compute@developer.gserviceaccount.com`.
+
+**Grant the roles it needs:**
+```powershell
+$PROJECT_ID = "YOUR_PROJECT_ID"
+$PROJECT_NUMBER = "631307158275"  # from the command above
+$SA = "$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:$SA" --role="roles/cloudbuild.builds.builder"
+gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:$SA" --role="roles/storage.objectViewer"
+gcloud projects add-iam-policy-binding $PROJECT_ID --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
+```
+
+| Role | Why it's needed |
+|---|---|
+| `roles/cloudbuild.builds.builder` | Lets Cloud Build actually build your container image from source. |
+| `roles/storage.objectViewer` | Lets it read the zipped source `gcloud` uploads to a temporary bucket. |
+| `roles/secretmanager.secretAccessor` | Lets the running container read `GOOGLE_API_KEY`, `GOOGLE_OAUTH_TOKEN_JSON`, and `SESSION_SECRET` (or whichever of these you've stored as secrets) at startup. |
+
+**Via the browser instead:** Cloud Console -> **IAM & Admin -> IAM** ->
+find the row ending in `-compute@developer.gserviceaccount.com` -> pencil
+icon -> **Add Another Role** -> add each of the three roles above -> Save.
+
+### 3. Your Google account's own Sheets/Drive access (OAuth)
+This is *not* an IAM grant in the usual sense -- it's the one-time consent
+you give yourself when running `get_token.py` (see "Authenticate as your
+own Google account" earlier). No service account or IAM policy is
+involved; your account already owns whatever it creates.
+
+### Common permission errors and their fix
+| Error | Fix |
+|---|---|
+| `Build failed because the default service account is missing required IAM permissions` | Grant `roles/cloudbuild.builds.builder` and `roles/storage.objectViewer` (section 2 above). |
+| `Permission denied on secret ... The service account used must be granted the 'Secret Manager Secret Accessor' role` | Grant `roles/secretmanager.secretAccessor` (section 2 above). |
+| `Error: Forbidden` / `Your client does not have permission to get URL / from this server` when visiting the app URL | The Cloud Run service itself isn't allowing public requests. Fix: `gcloud run services add-iam-policy-binding homework-tracker --region=us-central1 --member="allUsers" --role="roles/run.invoker"` (this controls whether the URL is *reachable* -- actual access is still gated by Google Sign-In once you've set that up). |
+| `gspread.exceptions.APIError: [403] storage quota exceeded` | Not an IAM issue -- you're using the service account instead of OAuth for creating sheets. See "Authenticate as your own Google account" earlier. |
 
 ---
 
@@ -286,17 +374,12 @@ as environment variable `SESSION_SECRET`.
 ```bash
 python -c "import secrets; print(secrets.token_hex(32))" | gcloud secrets create session-secret --data-file=-
 
-gcloud run services update homework-tracker \
-  --region=us-central1 \
-  --update-env-vars ALLOWED_EMAIL=your.actual.email@gmail.com,GOOGLE_OAUTH_WEB_CLIENT_ID=your-client-id.apps.googleusercontent.com \
-  --update-secrets SESSION_SECRET=session-secret:latest
+gcloud run services update homework-tracker --region=us-central1 --update-env-vars ALLOWED_EMAIL=your.actual.email@gmail.com,GOOGLE_OAUTH_WEB_CLIENT_ID=your-client-id.apps.googleusercontent.com --update-secrets SESSION_SECRET=session-secret:latest
 ```
 Don't forget to grant the Compute service account access to this new
 secret too (same as the other secrets):
 ```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role="roles/secretmanager.secretAccessor"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" --role="roles/secretmanager.secretAccessor"
 ```
 
 If all three env vars aren't set, the login gate is skipped entirely --
