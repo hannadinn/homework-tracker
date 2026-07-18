@@ -71,16 +71,20 @@ DUE_DATE_STRPTIME_FORMAT = "%d %b %Y"  # e.g. "2 Jun 2026" (Python's %d also acc
 STATUS_ON_TIME = "On Time"
 STATUS_LATE = "Late"
 STATUS_NOT_SUBMITTED = "Not Submitted"
-
+STATUS_INCOMPLETE = "Incomplete"
+ 
 STATUS_COLORS = {
-    STATUS_ON_TIME: {"red": 0.0, "green": 0.39, "blue": 0.0},        # dark green
-    STATUS_LATE: {"red": 1.0, "green": 0.65, "blue": 0.0},           # orange
-    STATUS_NOT_SUBMITTED: {"red": 0.55, "green": 0.0, "blue": 0.0},  # dark red
+    STATUS_ON_TIME: {"red": 0.0, "green": 0.39, "blue": 0.0},         # dark green
+    STATUS_LATE: {"red": 1.0, "green": 0.65, "blue": 0.0},            # orange
+    STATUS_NOT_SUBMITTED: {"red": 0.55, "green": 0.0, "blue": 0.0},   # dark red
+    STATUS_INCOMPLETE: {"red": 0.6, "green": 0.2, "blue": 0.8},       # purple
 }
-
-# Statuses a user/LLM is allowed to explicitly set. "On Time" is derived
-# automatically by the auto-fill rule and is never set directly.
-ASSIGNABLE_STATUSES = {STATUS_LATE, STATUS_NOT_SUBMITTED}
+ 
+# Statuses a user/LLM is allowed to explicitly set. "On Time" used to be
+# excluded here (it was only ever auto-filled), but the touch UI now lets
+# a person explicitly set it too -- e.g. to correct a previous mistake --
+# so it's included alongside the others.
+ASSIGNABLE_STATUSES = {STATUS_ON_TIME, STATUS_LATE, STATUS_NOT_SUBMITTED, STATUS_INCOMPLETE}
 
 
 def _format_due_date(d: date) -> str:
@@ -547,9 +551,10 @@ def update_submission_status(class_name: str, assignment_name: str, updates: lis
         who = display_name(row_filter)
 
         if status not in ASSIGNABLE_STATUSES:
+            valid = "', '".join(sorted(ASSIGNABLE_STATUSES))
             errors.append(
                 f"'{status}' isn't a status I can set for {who} -- "
-                f"it needs to be either '{STATUS_LATE}' or '{STATUS_NOT_SUBMITTED}'."
+                f"it needs to be one of: '{valid}'."
             )
             continue
 

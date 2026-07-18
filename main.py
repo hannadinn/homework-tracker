@@ -2,28 +2,36 @@
 Homework Tracker - main FastAPI application.
 
 Routes:
-  GET  /                                    -> web app shell
-  GET  /manifest.json                        -> PWA manifest
-
-  GET  /classes                               -> list existing class sheets
-  POST /classes                                -> create a class sheet from an uploaded CSV
-
-  GET  /classes/{class_name}/assignments        -> list assignment columns
-  POST /classes/{class_name}/assignments         -> create a new assignment column
-
-  POST /classes/{class_name}/instruct             -> send a chat instruction, scoped to a class
+  GET  /                                                          -> web app shell
+  GET  /manifest.json                                             -> PWA manifest
+  GET  /classes                                                   -> list existing class sheets
+  POST /classes                                                   -> create a class sheet from an uploaded CSV
+  GET  /classes/{class_name}/assignments                          -> list assignment columns
+  POST /classes/{class_name}/assignments                          -> create a new assignment column
+  GET  /classes/{class_name}/assignments/{assignment_name}/status -> touch UI: read student statuses
+  POST /classes/{class_name}/assignments/{assignment_name}/status -> touch UI: write student statuses
+  POST /classes/{class_name}/assignments/{assignment_name}/instruct -> send a chat instruction, scoped to a class
 
 Run locally:
-    uvicorn main:app --reload
+  uvicorn main:app --reload
 
 Deploy to Cloud Run:
-    gcloud run deploy homework-tracker --source . --region us-central1 --allow-unauthenticated
+  gcloud run deploy homework-tracker --source . --region us-central1 --allow-unauthenticated
 """
 
 import csv
 import io
+import mimetypes
 import os
 from pathlib import Path
+
+# Some environments (notably Windows, and some minimal Linux images) have
+# a system mimetypes database that maps .js to "text/plain" instead of a
+# JavaScript MIME type. Browsers refuse to execute <script type="module">
+# unless the Content-Type is a JS type, so without this, main.js (and
+# everything it imports) can silently fail to load -- symptom: the page
+# loads, but nothing happens (e.g. the class list never populates).
+mimetypes.add_type("text/javascript", ".js")
 
 from dotenv import load_dotenv
 
@@ -43,11 +51,15 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from agent import call_agent
 from sheets_client import (
+    ASSIGNABLE_STATUSES,
+    STATUS_COLORS,
     class_exists,
     create_assignment,
     create_class,
     get_assignments,
     list_classes,
+    load_records,
+    update_submission_status,
 )
 
 app = FastAPI(title="Homework Tracker")
@@ -134,7 +146,6 @@ class GoogleAuthRequest(BaseModel):
 def auth_google(req: GoogleAuthRequest, request: Request):
     if not (ALLOWED_EMAIL and SESSION_SECRET and GOOGLE_OAUTH_WEB_CLIENT_ID):
         raise HTTPException(500, "Login is not configured on this server.")
-
     try:
         payload = google_id_token.verify_oauth2_token(
             req.credential, google_requests.Request(), GOOGLE_OAUTH_WEB_CLIENT_ID
@@ -144,7 +155,6 @@ def auth_google(req: GoogleAuthRequest, request: Request):
 
     email = payload.get("email")
     email_verified = payload.get("email_verified", False)
-
     if not (email_verified and email == ALLOWED_EMAIL):
         raise HTTPException(403, "This app is restricted to a specific Google account.")
 
@@ -226,6 +236,87 @@ def post_class_assignment(class_name: str, req: AssignmentCreateRequest):
 
 
 # ---------------------------------------------------------------------------
+# Touch UI: read + write submission status without the chatbot
+# ---------------------------------------------------------------------------
+
+NO_DATA_STATUS = "No Data"
+
+
+@app.get("/classes/{class_name}/assignments/{assignment_name}/status")
+def get_assignment_status(class_name: str, assignment_name: str):
+    """
+    Returns every student's current status for one assignment, for the
+    touch UI. Blank cells are reported as "No Data" here ONLY -- the
+    underlying sheet cell is left untouched (still blank) until the user
+    actually submits a change for that student.
+    """
+    if not class_exists(class_name):
+        raise HTTPException(404, f"Class '{class_name}' not found.")
+
+    assignment_names = {a["name"] for a in get_assignments(class_name)}
+    if assignment_name not in assignment_names:
+        raise HTTPException(404, f"Assignment '{assignment_name}' not found in '{class_name}'.")
+
+    records = load_records(class_name)
+    students = []
+    for record in records:
+        name = record.get("Name", "").strip()
+        if not name:
+            continue
+        raw_status = (record.get(assignment_name) or "").strip()
+        students.append({
+            "name": name,
+            "status": raw_status if raw_status else NO_DATA_STATUS,
+        })
+
+    return {
+        "assignment": assignment_name,
+        "students": students,
+        # Ship the color map so the frontend never hardcodes colors that
+        # could drift out of sync with sheets_client.py.
+        "status_colors": STATUS_COLORS,
+        "assignable_statuses": sorted(ASSIGNABLE_STATUSES),
+    }
+
+
+class StatusUpdateItem(BaseModel):
+    name: str
+    status: str  # must be one of ASSIGNABLE_STATUSES ("Late" / "Not Submitted")
+
+
+class StatusUpdateRequest(BaseModel):
+    updates: list[StatusUpdateItem]
+
+
+@app.post("/classes/{class_name}/assignments/{assignment_name}/status")
+def post_assignment_status(class_name: str, assignment_name: str, req: StatusUpdateRequest):
+    """
+    Batched status write from the touch UI. Mirrors what the chatbot does
+    via update_submission_status: any student not included here keeps
+    whatever they already have (or gets auto-marked On Time only if the
+    whole column was empty before this call -- same rule as before).
+    """
+    if not class_exists(class_name):
+        raise HTTPException(404, f"Class '{class_name}' not found.")
+
+    assignment_names = {a["name"] for a in get_assignments(class_name)}
+    if assignment_name not in assignment_names:
+        raise HTTPException(404, f"Assignment '{assignment_name}' not found in '{class_name}'.")
+
+    if not req.updates:
+        raise HTTPException(400, "No changes submitted.")
+
+    updates = [
+        {"row_filter": {"Name": u.name}, "status": u.status}
+        for u in req.updates
+    ]
+    success, message = update_submission_status(class_name, assignment_name, updates)
+    if not success:
+        raise HTTPException(400, message)
+    return {"message": message}
+
+
+# ---------------------------------------------------------------------------
 # Chatbot
 # ---------------------------------------------------------------------------
 
@@ -243,9 +334,11 @@ class InstructionRequest(BaseModel):
 def post_instruct(class_name: str, assignment_name: str, req: InstructionRequest):
     if not class_exists(class_name):
         raise HTTPException(404, f"Class '{class_name}' not found.")
+
     assignment_names = {a["name"] for a in get_assignments(class_name)}
     if assignment_name not in assignment_names:
         raise HTTPException(404, f"Assignment '{assignment_name}' not found in '{class_name}'.")
+
     history = [h.model_dump() for h in req.history]
     result = call_agent(req.message, class_name, assignment_name, history=history)
     return {"result": result}
@@ -253,6 +346,5 @@ def post_instruct(class_name: str, assignment_name: str, req: InstructionRequest
 
 if __name__ == "__main__":
     import uvicorn
-
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
