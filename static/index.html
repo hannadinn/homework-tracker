@@ -8,189 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="Homework Tracker" />
   <link rel="apple-touch-icon" href="/static/icon-192.png" />
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      max-width: 480px;
-      margin: 0 auto;
-      padding: 1rem;
-      padding-bottom: env(safe-area-inset-bottom, 1rem);
-      background: #f5f5f7;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 1rem;
-    }
-    header button.back {
-      background: none;
-      border: none;
-      color: #007aff;
-      font-size: 1rem;
-      padding: 4px 8px 4px 0;
-      display: none;
-    }
-    header button.back.visible { display: inline-block; }
-    h1 { font-size: 1.1rem; margin: 0; flex: 1; }
-
-    .view { display: none; flex: 1; flex-direction: column; }
-    .view.active { display: flex; }
-
-    .list-item {
-      background: white;
-      border-radius: 12px;
-      padding: 14px 16px;
-      margin-bottom: 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      font-size: 1rem;
-      border: 1px solid #e5e5ea;
-    }
-    .list-item:active { background: #f0f0f0; }
-    .list-item .chevron { color: #c7c7cc; }
-    .list-item .item-main { display: flex; flex-direction: column; gap: 2px; }
-    .list-item .item-subtext { font-size: 0.8rem; color: #8e8e93; font-weight: normal; }
-    .list-item .item-right { display: flex; align-items: center; gap: 8px; }
-    .new-badge {
-      background: #34c759;
-      color: white;
-      font-size: 0.7rem;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 10px;
-      letter-spacing: 0.02em;
-    }
-
-    .empty-state {
-      color: #8e8e93;
-      text-align: center;
-      padding: 2rem 1rem;
-      font-size: 0.95rem;
-    }
-
-    .primary-btn {
-      background: #007aff;
-      color: white;
-      border: none;
-      border-radius: 12px;
-      padding: 14px;
-      font-size: 1rem;
-      width: 100%;
-      margin-top: auto;
-    }
-    .primary-btn:disabled { background: #aac6f2; }
-
-    .create-row {
-      background: white;
-      border-radius: 12px;
-      padding: 14px 16px;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #007aff;
-      font-weight: 500;
-      cursor: pointer;
-      border: 1px dashed #c7c7cc;
-    }
-
-    /* Modal */
-    .modal-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.4);
-      align-items: center;
-      justify-content: center;
-      z-index: 10;
-    }
-    .modal-backdrop.active { display: flex; }
-    .modal {
-      background: white;
-      border-radius: 16px;
-      padding: 20px;
-      width: 85%;
-      max-width: 340px;
-    }
-    .modal h2 { font-size: 1rem; margin: 0 0 12px; }
-    .modal input[type="text"] {
-      width: 100%;
-      padding: 12px;
-      border-radius: 10px;
-      border: 1px solid #ccc;
-      font-size: 1rem;
-      margin-bottom: 12px;
-    }
-    .modal .file-label {
-      display: block;
-      width: 100%;
-      padding: 12px;
-      border-radius: 10px;
-      border: 1px dashed #ccc;
-      text-align: center;
-      color: #007aff;
-      margin-bottom: 12px;
-      cursor: pointer;
-    }
-    .modal .file-label.has-file { border-style: solid; color: #111; }
-    .modal input[type="file"] { display: none; }
-    .modal-actions { display: flex; gap: 8px; }
-    .modal-actions button {
-      flex: 1;
-      padding: 12px;
-      border-radius: 10px;
-      border: none;
-      font-size: 0.95rem;
-    }
-    .modal-actions .cancel { background: #eee; color: #111; }
-    .modal-actions .confirm { background: #007aff; color: white; }
-    .modal-actions .confirm:disabled { background: #aac6f2; }
-    .modal .error-text { color: #ff3b30; font-size: 0.85rem; margin: -6px 0 10px; }
-
-    /* Chat view */
-    #chat { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 1rem; }
-    .msg { padding: 10px 14px; border-radius: 16px; max-width: 80%; line-height: 1.4; font-size: 0.95rem; }
-    .user { align-self: flex-end; background: #007aff; color: white; border-bottom-right-radius: 4px; }
-    .agent { align-self: flex-start; background: #e5e5ea; color: #111; border-bottom-left-radius: 4px; }
-    .agent.loading { opacity: 0.6; font-style: italic; }
-    #inputRow { display: flex; gap: 8px; padding-top: 8px; border-top: 1px solid #ddd; }
-    #chatInput { flex: 1; padding: 12px; border-radius: 20px; border: 1px solid #ccc; font-size: 1rem; }
-    #sendBtn { padding: 0 18px; border-radius: 20px; border: none; background: #007aff; color: white; font-size: 1rem; }
-    #sendBtn:disabled { background: #aac6f2; }
-
-    .history-banner {
-      display: none;
-      background: #fff4e5;
-      border: 1px solid #ffcc80;
-      color: #7a4a00;
-      border-radius: 10px;
-      padding: 10px 12px;
-      font-size: 0.82rem;
-      line-height: 1.35;
-      margin-bottom: 8px;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    .history-banner.visible { display: flex; }
-    .history-banner .banner-text { flex: 1; }
-    .history-banner .banner-dismiss {
-      background: none;
-      border: none;
-      color: #7a4a00;
-      font-size: 1rem;
-      line-height: 1;
-      padding: 0 2px;
-      cursor: pointer;
-      flex-shrink: 0;
-    }
-  </style>
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
   <header>
@@ -210,7 +28,11 @@
     <div id="assignmentList"></div>
   </div>
 
-  <!-- View 3: Chat -->
+  <!-- View 3: Chat (no longer linked from the assignment list -- see
+       assignments.js's click handler, which now opens view-status
+       instead. Left in place in case you want to fall back to it;
+       safe to delete along with chat.js once you're confident in the
+       touch UI. -->
   <div class="view" id="view-chat">
     <div class="history-banner" id="historyBanner">
       <span class="banner-text">
@@ -223,6 +45,20 @@
     <div id="inputRow">
       <input id="chatInput" placeholder="Type an instruction..." autocomplete="off" />
       <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <!-- View 4: Student status (touch UI) -->
+  <div class="view" id="view-status">
+    <input id="studentSearch" placeholder="Search students..." autocomplete="off" />
+    <div id="studentListScroll">
+      <div id="studentList"></div>
+    </div>
+    <div class="status-actions-row">
+      <button id="statusClearBtn" disabled>Clear</button>
+      <button class="primary-btn" id="statusSubmitBtn" disabled>
+        Submit changes (<span id="pendingCount">0</span>)
+      </button>
     </div>
   </div>
 
@@ -258,330 +94,47 @@
     </div>
   </div>
 
-  <script>
-    // ---- App state ----
-    let currentClass = null;
-    let currentAssignment = null;
-    let selectedFile = null;
-    // Names of assignments created during this page session (not persisted --
-    // resets automatically on refresh, which is the desired "New" behavior).
-    const newlyCreatedAssignments = new Set();
+  <!-- Modal: pick a status for a student -->
+  <div class="modal-backdrop" id="statusPickerModal">
+    <div class="modal">
+      <h2 id="statusPickerName"></h2>
+      <div id="statusPickerButtons"></div>
+      <div class="modal-actions">
+        <button class="cancel" id="statusPickerCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </div>
 
-    // ---- View management ----
-    const views = {
-      home: document.getElementById('view-home'),
-      assignments: document.getElementById('view-assignments'),
-      chat: document.getElementById('view-chat'),
-    };
-    const pageTitle = document.getElementById('pageTitle');
-    const backBtn = document.getElementById('backBtn');
+  <!-- Modal: confirm clearing all pending changes -->
+  <div class="modal-backdrop" id="clearConfirmModal">
+    <div class="modal">
+      <h2>Clear all changes?</h2>
+      <p style="font-size:0.9rem;color:#444;margin-top:-6px;">
+        This will discard every unsaved status change you made on this screen.
+        Nothing has been written to the spreadsheet yet, so this only affects
+        what you see here.
+      </p>
+      <div class="modal-actions">
+        <button class="cancel" id="clearCancelBtn">Cancel</button>
+        <button class="danger" id="clearConfirmBtn">Clear changes</button>
+      </div>
+    </div>
+  </div>
 
-    function showView(name) {
-      Object.values(views).forEach(v => v.classList.remove('active'));
-      views[name].classList.add('active');
-      backBtn.classList.toggle('visible', name !== 'home');
-      if (name === 'home') pageTitle.textContent = '📊 Homework Tracker';
-      if (name === 'assignments') pageTitle.textContent = currentClass;
-      if (name === 'chat') pageTitle.textContent = currentAssignment;
-    }
+  <!-- Modal: confirm submit -->
+  <div class="modal-backdrop" id="submitConfirmModal">
+    <div class="modal">
+      <h2 id="submitConfirmTitle">Confirm changes</h2>
+      <div id="submitConfirmList"></div>
+      <div class="modal-actions">
+        <button class="cancel" id="submitConfirmCancelBtn">Cancel</button>
+        <button class="confirm" id="submitConfirmOkBtn">Confirm</button>
+      </div>
+    </div>
+  </div>
 
-    backBtn.addEventListener('click', () => {
-      if (views.chat.classList.contains('active')) {
-        showView('assignments');
-        loadAssignments(currentClass);
-      } else if (views.assignments.classList.contains('active')) {
-        currentClass = null;
-        showView('home');
-        loadClasses();
-      }
-    });
-
-    // ---- Home view: class list ----
-    async function loadClasses() {
-      const container = document.getElementById('classList');
-      container.innerHTML = '<div class="empty-state">Loading…</div>';
-      try {
-        const res = await fetch('/classes');
-        const data = await res.json();
-        if (!data.classes || data.classes.length === 0) {
-          container.innerHTML = '<div class="empty-state">No classes yet. Create one below.</div>';
-          return;
-        }
-        container.innerHTML = '';
-        data.classes.forEach(name => {
-          const el = document.createElement('div');
-          el.className = 'list-item';
-          el.innerHTML = `<span>${escapeHtml(name)}</span><span class="chevron">›</span>`;
-          el.addEventListener('click', () => {
-            currentClass = name;
-            showView('assignments');
-            loadAssignments(name);
-          });
-          container.appendChild(el);
-        });
-      } catch (err) {
-        container.innerHTML = '<div class="empty-state">Failed to load classes.</div>';
-      }
-    }
-
-    // ---- Create class modal ----
-    const createClassModal = document.getElementById('createClassModal');
-    const fileLabel = document.getElementById('fileLabel');
-    const csvFile = document.getElementById('csvFile');
-    const confirmClassBtn = document.getElementById('confirmClassBtn');
-    const createClassError = document.getElementById('createClassError');
-
-    document.getElementById('createClassBtn').addEventListener('click', () => {
-      selectedFile = null;
-      csvFile.value = '';
-      fileLabel.textContent = 'Choose CSV file';
-      fileLabel.classList.remove('has-file');
-      confirmClassBtn.disabled = true;
-      createClassError.textContent = '';
-      createClassModal.classList.add('active');
-    });
-    document.getElementById('cancelClassBtn').addEventListener('click', () => {
-      createClassModal.classList.remove('active');
-    });
-    csvFile.addEventListener('change', () => {
-      if (csvFile.files.length > 0) {
-        selectedFile = csvFile.files[0];
-        fileLabel.textContent = selectedFile.name;
-        fileLabel.classList.add('has-file');
-        confirmClassBtn.disabled = false;
-      }
-    });
-    confirmClassBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
-      confirmClassBtn.disabled = true;
-      createClassError.textContent = '';
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      try {
-        const res = await fetch('/classes', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (!res.ok) {
-          createClassError.textContent = data.detail || 'Failed to create class.';
-          confirmClassBtn.disabled = false;
-          return;
-        }
-        createClassModal.classList.remove('active');
-        loadClasses();
-      } catch (err) {
-        createClassError.textContent = 'Something went wrong.';
-        confirmClassBtn.disabled = false;
-      }
-    });
-
-    // ---- Assignments view ----
-    async function loadAssignments(className) {
-      const container = document.getElementById('assignmentList');
-      container.innerHTML = '<div class="empty-state">Loading…</div>';
-      try {
-        const res = await fetch(`/classes/${encodeURIComponent(className)}/assignments`);
-        const data = await res.json();
-        if (!data.assignments || data.assignments.length === 0) {
-          container.innerHTML = '<div class="empty-state">No assignments yet. Create one above.</div>';
-          return;
-        }
-
-        // Backend already sorts by date_created descending. Additionally
-        // pin anything created this session to the very top, so a brand
-        // new assignment is guaranteed to be first regardless of same-day
-        // ties with other assignments.
-        const isNew = a => newlyCreatedAssignments.has(`${className}::${a.name}`);
-        const sorted = [
-          ...data.assignments.filter(isNew),
-          ...data.assignments.filter(a => !isNew(a)),
-        ];
-
-        container.innerHTML = '';
-        sorted.forEach(a => {
-          const el = document.createElement('div');
-          el.className = 'list-item';
-          const dateText = a.due_date ? `Due: ${escapeHtml(a.due_date)}` : '';
-          const badge = isNew(a) ? '<span class="new-badge">NEW</span>' : '';
-          el.innerHTML = `
-            <div class="item-main">
-              <span>${escapeHtml(a.name)}</span>
-              ${dateText ? `<span class="item-subtext">${dateText}</span>` : ''}
-            </div>
-            <div class="item-right">${badge}<span class="chevron">›</span></div>
-          `;
-          el.addEventListener('click', () => {
-            newlyCreatedAssignments.delete(`${className}::${a.name}`);
-            currentAssignment = a.name;
-            showView('chat');
-            resetChat();
-          });
-          container.appendChild(el);
-        });
-      } catch (err) {
-        container.innerHTML = '<div class="empty-state">Failed to load assignments.</div>';
-      }
-    }
-
-    // ---- Create assignment modal ----
-    const createAssignmentModal = document.getElementById('createAssignmentModal');
-    const assignmentNameInput = document.getElementById('assignmentNameInput');
-    const assignmentDueDateInput = document.getElementById('assignmentDueDateInput');
-    const confirmAssignmentBtn = document.getElementById('confirmAssignmentBtn');
-    const createAssignmentError = document.getElementById('createAssignmentError');
-
-    const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-    function todayIso() {
-      const d = new Date();
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    }
-
-    // Convert an <input type="date"> value ("YYYY-MM-DD") to the backend's
-    // expected "D Mon YYYY" format (e.g. "2 Jun 2026").
-    function isoToDisplayDate(isoStr) {
-      const [yyyy, mm, dd] = isoStr.split('-').map(Number);
-      return `${dd} ${MONTH_ABBR[mm - 1]} ${yyyy}`;
-    }
-
-    document.getElementById('createAssignmentRow').addEventListener('click', () => {
-      assignmentNameInput.value = '';
-      assignmentDueDateInput.value = todayIso();
-      createAssignmentError.textContent = '';
-      createAssignmentModal.classList.add('active');
-      assignmentNameInput.focus();
-    });
-    document.getElementById('cancelAssignmentBtn').addEventListener('click', () => {
-      createAssignmentModal.classList.remove('active');
-    });
-    confirmAssignmentBtn.addEventListener('click', async () => {
-      const name = assignmentNameInput.value.trim();
-      const dueDateIso = assignmentDueDateInput.value;
-
-      if (!name) {
-        createAssignmentError.textContent = 'Please enter an assignment name.';
-        return;
-      }
-      if (!dueDateIso) {
-        createAssignmentError.textContent = 'Please select a due date.';
-        return;
-      }
-
-      const due_date = isoToDisplayDate(dueDateIso);
-
-      confirmAssignmentBtn.disabled = true;
-      createAssignmentError.textContent = '';
-      try {
-        const res = await fetch(`/classes/${encodeURIComponent(currentClass)}/assignments`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, due_date }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          createAssignmentError.textContent = data.detail || 'Failed to create assignment.';
-          confirmAssignmentBtn.disabled = false;
-          return;
-        }
-        createAssignmentModal.classList.remove('active');
-        confirmAssignmentBtn.disabled = false;
-        newlyCreatedAssignments.add(`${currentClass}::${name}`);
-        loadAssignments(currentClass);
-      } catch (err) {
-        createAssignmentError.textContent = 'Something went wrong.';
-        confirmAssignmentBtn.disabled = false;
-      }
-    });
-
-    // ---- Chat view ----
-    const chatEl = document.getElementById('chat');
-    const chatInput = document.getElementById('chatInput');
-    const sendBtn = document.getElementById('sendBtn');
-    // Bounded recent-conversation memory sent with each request so
-    // follow-ups like "Bob too" resolve correctly. Resets whenever a fresh
-    // assignment chat starts (see resetChat) -- session-only, same as the
-    // "New" badge tracking.
-    const MAX_HISTORY_TURNS = 12;
-    let chatHistory = [];
-    const historyBanner = document.getElementById('historyBanner');
-    let historyCapNoticeShown = false;
-
-    document.getElementById('dismissBannerBtn').addEventListener('click', () => {
-      historyBanner.classList.remove('visible');
-    });
-
-    function resetChat() {
-      chatEl.innerHTML = '';
-      chatHistory = [];
-      historyCapNoticeShown = false;
-      historyBanner.classList.remove('visible');
-      addMessage(
-        `You're tracking submissions for "${currentAssignment}" in ${currentClass}. ` +
-        `Only mention students who were late or didn't submit -- e.g. "Alice was late, Bob didn't submit". ` +
-        `Everyone else will be marked On Time automatically the first time you do this.`,
-        'agent'
-      );
-    }
-
-    function addMessage(text, sender, opts = {}) {
-      const div = document.createElement('div');
-      div.className = `msg ${sender}` + (opts.loading ? ' loading' : '');
-      div.textContent = text;
-      chatEl.appendChild(div);
-      div.scrollIntoView({ behavior: 'smooth' });
-      return div;
-    }
-
-    async function sendChat() {
-      const text = chatInput.value.trim();
-      if (!text) return;
-      addMessage(text, 'user');
-      chatInput.value = '';
-      sendBtn.disabled = true;
-      const loadingEl = addMessage('Thinking…', 'agent', { loading: true });
-      try {
-        const res = await fetch(`/classes/${encodeURIComponent(currentClass)}/assignments/${encodeURIComponent(currentAssignment)}/instruct`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history: chatHistory }),
-        });
-        const data = await res.json();
-        const replyText = data.result || data.detail || 'Something went wrong.';
-        loadingEl.textContent = replyText;
-        loadingEl.classList.remove('loading');
-
-        if (res.ok) {
-          chatHistory.push({ role: 'user', text });
-          chatHistory.push({ role: 'agent', text: replyText });
-          if (chatHistory.length > MAX_HISTORY_TURNS) {
-            chatHistory = chatHistory.slice(-MAX_HISTORY_TURNS);
-            if (!historyCapNoticeShown) {
-              historyCapNoticeShown = true;
-              historyBanner.classList.add('visible');
-            }
-          }
-        }
-      } catch (err) {
-        loadingEl.textContent = 'Something went wrong. Please try again.';
-        loadingEl.classList.remove('loading');
-      } finally {
-        sendBtn.disabled = false;
-        chatInput.focus();
-      }
-    }
-    sendBtn.addEventListener('click', sendChat);
-    chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
-
-    // ---- Utils ----
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    // ---- Init ----
-    loadClasses();
-  </script>
+  <!-- type="module" enables native ES `import`/`export` in the browser --
+       no bundler needed. main.js pulls in every other module it needs. -->
+  <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
