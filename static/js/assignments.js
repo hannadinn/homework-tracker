@@ -54,6 +54,7 @@ export async function loadAssignments(className) {
 const createAssignmentModal = document.getElementById('createAssignmentModal');
 const assignmentNameInput = document.getElementById('assignmentNameInput');
 const assignmentDueDateInput = document.getElementById('assignmentDueDateInput');
+const markAllOnTimeInput = document.getElementById('markAllOnTimeInput');
 const confirmAssignmentBtn = document.getElementById('confirmAssignmentBtn');
 const createAssignmentError = document.getElementById('createAssignmentError');
 
@@ -77,6 +78,7 @@ function isoToDisplayDate(isoStr) {
 document.getElementById('createAssignmentRow').addEventListener('click', () => {
   assignmentNameInput.value = '';
   assignmentDueDateInput.value = todayIso();
+  markAllOnTimeInput.checked = true;
   createAssignmentError.textContent = '';
   createAssignmentModal.classList.add('active');
   assignmentNameInput.focus();
@@ -99,6 +101,7 @@ confirmAssignmentBtn.addEventListener('click', async () => {
   }
 
   const due_date = isoToDisplayDate(dueDateIso);
+  const mark_all_on_time = markAllOnTimeInput.checked;
 
   confirmAssignmentBtn.disabled = true;
   createAssignmentError.textContent = '';
@@ -106,7 +109,7 @@ confirmAssignmentBtn.addEventListener('click', async () => {
     const res = await fetch(`/classes/${encodeURIComponent(currentClass)}/assignments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, due_date }),
+      body: JSON.stringify({ name, due_date, mark_all_on_time }),
     });
     const data = await res.json();
     if (!res.ok) {

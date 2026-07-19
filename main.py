@@ -223,6 +223,7 @@ def get_class_assignments(class_name: str):
 class AssignmentCreateRequest(BaseModel):
     name: str
     due_date: str | None = None
+    mark_all_on_time: bool = True
 
 
 @app.post("/classes/{class_name}/assignments")
@@ -232,6 +233,17 @@ def post_class_assignment(class_name: str, req: AssignmentCreateRequest):
     success, message = create_assignment(class_name, req.name, req.due_date)
     if not success:
         raise HTTPException(400, message)
+
+    if req.mark_all_on_time:
+        # The column was just created, so it's guaranteed empty -- calling
+        # update_submission_status with no explicit updates triggers its
+        # existing "column was empty -> mark everyone On Time" auto-fill
+        # rule for every student. If there happen to be zero students in
+        # the class, this call has nothing to do and returns success=False
+        # with "No changes to apply." -- harmless, so it's ignored here
+        # rather than surfaced as an error on assignment creation.
+        update_submission_status(class_name, req.name, [])
+
     return {"message": message}
 
 
